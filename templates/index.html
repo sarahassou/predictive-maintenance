@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Predictive Maintenance Scoring</title>
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; color: #111; background: #fff;
+         max-width: 820px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.6rem; border-bottom: 1px solid #111; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; }
+  form { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem 1.2rem; }
+  label { display: flex; flex-direction: column; font-size: .9rem; }
+  input, select { font: inherit; padding: .35rem; border: 1px solid #555; background: #fff; }
+  button { font: inherit; padding: .5rem 1rem; border: 1px solid #111; background: #111;
+           color: #fff; cursor: pointer; }
+  button.secondary { background: #fff; color: #111; }
+  .actions { grid-column: 1 / -1; display: flex; gap: .6rem; }
+  .errors { border: 1px solid #111; padding: .6rem 1rem; background: #eee; }
+  .result { border: 2px solid #111; padding: 1rem; margin-top: 1.2rem; }
+  .flag { font-weight: bold; text-transform: uppercase; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { border-top: 1px solid #999; border-bottom: 1px solid #999; padding: .3rem .5rem; text-align: left; }
+  .note { font-size: .85rem; color: #444; }
+</style>
+</head>
+<body>
+<h1>Predictive Maintenance Scoring</h1>
+<p class="note">Scores one machine reading with an Isolation Forest (trained on normal
+records only) and a supervised Random Forest baseline. Trained on the synthetic
+UCI AI4I 2020 dataset; for demonstration, not for operational use.</p>
+
+{% if errors %}
+<div class="errors"><strong>Please fix:</strong>
+  <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<form method="post" action="/predict" id="score-form">
+  <label>Product quality type
+    <select name="type">
+      {% for t in ["L", "M", "H"] %}
+      <option value="{{ t }}" {% if form.get("type") == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Air temperature (K)
+    <input name="air_temperature" type="number" step="any" value="{{ form.get('air_temperature', '') }}" required></label>
+  <label>Process temperature (K)
+    <input name="process_temperature" type="number" step="any" value="{{ form.get('process_temperature', '') }}" required></label>
+  <label>Rotational speed (rpm)
+    <input name="rotational_speed" type="number" step="any" value="{{ form.get('rotational_speed', '') }}" required></label>
+  <label>Torque (Nm)
+    <input name="torque" type="number" step="any" value="{{ form.get('torque', '') }}" required></label>
+  <label>Tool wear (min)
+    <input name="tool_wear" type="number" step="any" value="{{ form.get('tool_wear', '') }}" required></label>
+  <div class="actions">
+    <button type="submit">Score reading</button>
+    <button type="button" class="secondary" onclick="fillExample('normal')">Load normal example</button>
+    <button type="button" class="secondary" onclick="fillExample('strain')">Load high-strain example</button>
+  </div>
+</form>
+
+{% if result %}
+<div class="result">
+  <h2 style="margin-top:0">Result</h2>
+  <p>Isolation Forest: anomaly score <strong>{{ result.anomaly_score }}</strong>
+     (alert threshold {{ result.anomaly_threshold }}, set for a {{ false_alarm_pct }}% false-alarm
+     rate on normal data) &rarr;
+     <span class="flag">{{ "alert" if result.anomaly_alert else "normal" }}</span></p>
+  <p>Random Forest: failure probability <strong>{{ result.failure_probability }}</strong> &rarr;
+     <span class="flag">{{ "alert" if result.supervised_alert else "normal" }}</span></p>
+  <p class="note">Derived features: temperature difference {{ result.derived.temp_diff }} K,
+     power {{ result.derived.power_w }} W, strain {{ result.derived.strain }}.</p>
+</div>
+{% endif %}
+
+{% if metrics %}
+<h2>Held-out test performance</h2>
+<table>
+  <tr><th>Model</th><th>ROC-AUC</th><th>Avg. precision</th><th>Precision</th><th>Recall</th><th>F1</th></tr>
+  {% for m in metrics %}
+  <tr><td>{{ m.model }}</td><td>{{ m.roc_auc }}</td><td>{{ m.avg_precision }}</td>
+      <td>{{ m.precision }}</td><td>{{ m.recall }}</td><td>{{ m.f1 }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if history %}
+<h2>Last {{ history|length }} scored readings</h2>
+<table>
+  <tr><th>Time (UTC)</th><th>Type</th><th>rpm</th><th>Torque</th><th>Wear</th><th>Anomaly score</th><th>RF prob.</th></tr>
+  {% for h in history %}
+  <tr><td>{{ h.scored_at }}</td><td>{{ h.type }}</td><td>{{ h.rotational_speed }}</td>
+      <td>{{ h.torque }}</td><td>{{ h.tool_wear }}</td>
+      <td>{{ h.anomaly_score }}{% if h.anomaly_alert %} (alert){% endif %}</td>
+      <td>{{ h.failure_probability }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<script>
+  const examples = {
+    normal: { type: "M", air_temperature: 298.1, process_temperature: 308.6,
+              rotational_speed: 1551, torque: 42.8, tool_wear: 0 },
+    strain: { type: "L", air_temperature: 298.0, process_temperature: 308.5,
+              rotational_speed: 1380, torque: 66, tool_wear: 220 }
+  };
+  function fillExample(name) {
+    const form = document.getElementById("score-form");
+    for (const [key, value] of Object.entries(examples[name])) {
+      form.elements[key].value = value;
+    }
+  }
+</script>
+</body>
+</html>
